@@ -7,6 +7,10 @@ pipeline {
         AWS_REGION     = 'ap-south-1'
         REPO_URL       = 'https://github.com/sachinashokyadav/capstone-project.git'
         BRANCH         = 'main'
+        SONAR_PROJECT_KEY = "capstone-project"
+        SONAR_PROJECT_NAME = "Capstone Project"
+        SONAR_HOST_URL = "http://sonarqube:9000"   // Change if using external SonarQube
+        SONAR_LOGIN    = credentials('sonar-token') // Jenkins credential ID for SonarQube token
     }
 
     stages {
@@ -14,6 +18,22 @@ pipeline {
             steps {
                 echo 'Cloning GitHub repository...'
                 git branch: "${BRANCH}", url: "${REPO_URL}"
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    echo 'Running SonarQube Analysis...'
+                    sh """
+                        sonar-scanner \
+                          -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                          -Dsonar.projectName='${SONAR_PROJECT_NAME}' \
+                          -Dsonar.sources=. \
+                          -Dsonar.host.url=${SONAR_HOST_URL} \
+                          -Dsonar.login=${SONAR_LOGIN}
+                    """
+                }
             }
         }
 
@@ -67,10 +87,8 @@ pipeline {
             steps {
                 script {
                     echo 'Running Trivy scans on Docker images...'
-                    sh '''
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${FRONTEND_IMAGE}:latest || true
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${BACKEND_IMAGE}:latest || true
-                    '''.stripIndent()
+                    sh "trivy image ${FRONTEND_IMAGE}:latest || true"
+                    sh "trivy image ${BACKEND_IMAGE}:latest || true"
                 }
             }
         }
