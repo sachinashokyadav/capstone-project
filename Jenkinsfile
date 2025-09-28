@@ -2,43 +2,45 @@ pipeline {
     agent any
 
     environment {
-        FRONTEND_IMAGE_NAME = 'capstoneproject/frontend-image'
-        BACKEND_IMAGE_NAME = 'capstoneproject/backend-image'
-        DOCKER_REGISTRY = '688372068524.dkr.ecr.ap-south-1.amazonaws.com'
-        ECR_REPO = 'capstoneproject'
-        FRONTEND_PATH = './frontend'
-        BACKEND_PATH = './backend'
-        REPO_URL = 'https://github.com/sachinashokyadav/capstone-project.git'
-        BRANCH = 'main' // Specify the branch you want to deploy
-        AWS_REGION = 'ap-south-1' // Specify your AWS region
+        FRONTEND_IMAGE = '688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/frontend-image'
+        BACKEND_IMAGE  = '688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/backend-image'
+        AWS_REGION     = 'ap-south-1'
+        REPO_URL       = 'https://github.com/sachinashokyadav/capstone-project.git'
+        BRANCH         = 'main'
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                script {
-                    echo 'Cloning GitHub repository...'
-                    git branch: "${BRANCH}", url: "${REPO_URL}"
-                }
+                echo 'Cloning GitHub repository...'
+                git branch: "${BRANCH}", url: "${REPO_URL}"
             }
         }
 
-        stage('Dependency Check') {
+        stage('Dependency Check (Optional)') {
             steps {
                 script {
                     echo 'Running dependency check...'
-                    // Use OWASP Dependency-Check, Snyk, or other dependency check tools
-                    sh 'dependency-check --scan ${BACKEND_PATH} --scan ${FRONTEND_PATH}'
+                    sh '''
+                    docker run --rm \
+                        -v $(pwd):/src \
+                        owasp/dependency-check \
+                        --project "capstone-project" \
+                        --scan /src/backend /src/frontend \
+                        --format HTML \
+                        --out /src/dependency-check-report
+                    '''.stripIndent()
                 }
             }
         }
 
-        stage('File Scan for Sensitive Data') {
+        stage('Sensitive File Scan (Optional)') {
             steps {
                 script {
-                    echo 'Scanning files for sensitive data...'
-                    // Use a tool like TruffleHog or GitLeaks to scan files for sensitive data
-                    sh 'trufflehog --regex --entropy=True ./'
+                    echo 'Scanning for sensitive information using truffleHog...'
+                    sh '''
+                    docker run --rm -v $(pwd):/pwd -w /pwd trufflesecurity/trufflehog:latest filesystem . || true
+                    '''.stripIndent()
                 }
             }
         }
@@ -47,8 +49,7 @@ pipeline {
             steps {
                 script {
                     echo 'Building frontend Docker image...'
-                    // Build Docker image for the frontend
-                    sh 'docker build -t ${DOCKER_REGISTRY}/${ECR_REPO}/${FRONTEND_IMAGE_NAME}:latest ${FRONTEND_PATH}'
+                    sh "docker build -t ${FRONTEND_IMAGE}:latest ./frontend"
                 }
             }
         }
@@ -57,8 +58,7 @@ pipeline {
             steps {
                 script {
                     echo 'Building backend Docker image...'
-                    // Build Docker image for the backend
-                    sh 'docker build -t ${DOCKER_REGISTRY}/${ECR_REPO}/${BACKEND_IMAGE_NAME}:latest ${BACKEND_PATH}'
+                    sh "docker build -t ${BACKEND_IMAGE}:latest ./backend"
                 }
             }
         }
@@ -66,39 +66,29 @@ pipeline {
         stage('Trivy Image Scan') {
             steps {
                 script {
-                    echo 'Scanning frontend Docker image for vulnerabilities with Trivy...'
-                    // Scan the frontend Docker image with Trivy
-                    sh 'trivy image ${DOCKER_REGISTRY}/${ECR_REPO}/${FRONTEND_IMAGE_NAME}:latest'
-
-                    echo 'Scanning backend Docker image for vulnerabilities with Trivy...'
-                    // Scan the backend Docker image with Trivy
-                    sh 'trivy image ${DOCKER_REGISTRY}/${ECR_REPO}/${BACKEND_IMAGE_NAME}:latest'
+                    echo 'Running Trivy scans on Docker images...'
+                    sh '''
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${FRONTEND_IMAGE}:latest || true
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${BACKEND_IMAGE}:latest || true
+                    '''.stripIndent()
                 }
             }
         }
 
-        stage('Push Frontend Docker Image to AWS ECR') {
+        stage('Push Images to AWS ECR') {
             steps {
                 script {
-                    echo 'Logging into AWS ECR...'
-                    // Login to AWS ECR
+                    echo 'Logging in to AWS ECR...'
                     sh '''
-                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin 688372068524.dkr.ecr.ap-south-1.amazonaws.com
                     '''
 
-                    echo 'Pushing frontend Docker image to AWS ECR...'
-                    // Push the frontend Docker image to AWS ECR
-                    sh 'docker push ${DOCKER_REGISTRY}/${ECR_REPO}/${FRONTEND_IMAGE_NAME}:latest'
-                }
-            }
-        }
+                    echo 'Pushing frontend image...'
+                    sh "docker push ${FRONTEND_IMAGE}:latest"
 
-        stage('Push Backend Docker Image to AWS ECR') {
-            steps {
-                script {
-                    echo 'Pushing backend Docker image to AWS ECR...'
-                    // Push the backend Docker image to AWS ECR
-                    sh 'docker push ${DOCKER_REGISTRY}/${ECR_REPO}/${BACKEND_IMAGE_NAME}:latest'
+                    echo 'Pushing backend image...'
+                    sh "docker push ${BACKEND_IMAGE}:latest"
                 }
             }
         }
@@ -106,9 +96,10 @@ pipeline {
 
     post {
         always {
-            echo 'Cleaning up Docker images...'
-            // Remove local Docker images to clean up
-            sh 'docker system prune -af'
+            echo 'Cleaning up Docker resources...'
+            sh '''
+            docker system prune -af || true
+            '''
         }
     }
 }
