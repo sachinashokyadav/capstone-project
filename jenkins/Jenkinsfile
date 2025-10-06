@@ -1,0 +1,85 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION = 'ap-south-1'
+    ACCOUNT_ID = sh(returnStdout: true, script: 'aws sts get-caller-identity --query Account --output text').trim()
+    ECR_URL = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Code Quality & Dependency Check') {
+      steps {
+        sh '''
+        # run npm audit/sonarqube or eslint as applicable
+        # example:
+        cd Application-Code/backend
+        npm ci
+        npm audit --audit-level=moderate || true
+        '''
+      }
+    }
+
+    stage('Build & Test') {
+      steps {
+        sh '''
+        # Frontend build (React)
+        cd Application-Code/frontend
+        npm ci
+        npm run build || true
+        # Backend unit tests
+        cd ../backend
+        npm ci
+        npm test || true
+        '''
+      }
+    }
+
+    stage('Build Docker images') {
+      steps {
+        script {
+          GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+          sh "bash cicd/build_and_push.sh frontend ${GIT_COMMIT}"
+          sh "bash cicd/build_and_push.sh backend ${GIT_COMMIT}"
+        }
+      }
+    }
+
+    stage('Image scan (Trivy)') {
+      steps {
+        sh '''
+        # Make sure trivy is installed on Jenkins agent
+        trivy image --severity HIGH,CRITICAL ${ECR_URL}/frontend:${GIT_COMMIT} || true
+        trivy image --severity HIGH,CRITICAL ${ECR_URL}/backend:${GIT_COMMIT} || true
+        '''
+      }
+    }
+
+    stage('Update k8s manifests / Helm values and push to git') {
+      steps {
+        sh """
+        # Update k8s manifests with new image tags and commit to 'manifests' folder for ArgoCD to pick up
+        mkdir -p k8s/generated
+        sed 's|__FRONTEND_IMAGE__|${ECR_URL}/frontend:${GIT_COMMIT}|g' k8s/frontend-deployment.yaml.template > k8s/generated/frontend-deployment.yaml
+        sed 's|__BACKEND_IMAGE__|${ECR_URL}/backend:${GIT_COMMIT}|g'  k8s/backend-deployment.yaml.template > k8s/generated/backend-deployment.yaml
+
+        git config user.email "jenkins@ci"
+        git config user.name "Jenkins CI"
+        git add k8s/generated/*
+        git commit -m "CI: update images to ${GIT_COMMIT}" || echo "no changes"
+        git push origin main
+        """
+      }
+    }
+  }
+  post {
+    failure {
+      mail to: 'you@yourdomain.com', subject: "Build failed: ${env.JOB_NAME}", body: "See Jenkins"
+    }
+  }
+}
+
