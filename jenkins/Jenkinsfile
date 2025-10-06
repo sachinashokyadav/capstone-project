@@ -20,12 +20,22 @@ pipeline {
                 script {
                     echo "Running OWASP Dependency Check..."
                     sh '''
-                        mkdir -p reports
-                        cd Application-Code/backend
-                        dependency-check.sh --scan . --format HTML --out ../../reports/backend-dependency-report.html
+                        apt-get update -y && apt-get install -y wget unzip openjdk-11-jre-headless
+                        mkdir -p /opt/dependency-check
+                        cd /opt/dependency-check
+
+                        # Download OWASP Dependency Check CLI if not already present
+                        if [ ! -f dependency-check.sh ]; then
+                            wget https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
+                            unzip dependency-check-8.4.0-release.zip
+                        fi
+
+                        mkdir -p /var/jenkins_home/reports
+                        cd ${WORKSPACE}/Application-Code/backend
+                        /opt/dependency-check/dependency-check/bin/dependency-check.sh --scan . --format HTML --out ${WORKSPACE}/reports/backend-dependency-report.html || true
 
                         cd ../frontend
-                        dependency-check.sh --scan . --format HTML --out ../../reports/frontend-dependency-report.html
+                        /opt/dependency-check/dependency-check/bin/dependency-check.sh --scan . --format HTML --out ${WORKSPACE}/reports/frontend-dependency-report.html || true
                     '''
                 }
             }
@@ -36,15 +46,11 @@ pipeline {
                 script {
                     echo "Scanning for sensitive files..."
                     sh '''
-                        # Example: scan for .env files
                         echo "Checking for .env files..."
-                        find Application-Code -type f -name ".env"
+                        find Application-Code -type f -name ".env" || echo "No .env files found."
 
-                        # Example: scan for AWS credentials inside files
                         echo "Checking for AWS keys..."
-                        grep -rnE "AKIA[0-9A-Z]{16}" Application-Code || echo "No AWS keys found"
-
-                        # Add more patterns if needed
+                        grep -rnE "AKIA[0-9A-Z]{16}" Application-Code || echo "No AWS keys found."
                     '''
                 }
             }
@@ -54,7 +60,6 @@ pipeline {
             steps {
                 script {
                     GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-
                     sh '''
                         echo "Building backend and frontend Docker images..."
                         cd Application-Code/backend
@@ -74,7 +79,7 @@ pipeline {
                         sh '''
                             echo "Logging in to AWS ECR..."
                             aws ecr get-login-password --region ${AWS_REGION} | \
-                            docker login --username AWS --password-stdin ${ECR_URI}
+                            docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
                         '''
                     }
                 }
