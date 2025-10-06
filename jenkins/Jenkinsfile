@@ -134,6 +134,7 @@ pipeline {
     post {
         success {
             echo "✅ Successfully built, scanned, and pushed Docker images to ECR: ${ECR_URI}"
+            cleanWs()
         }
         failure {
             echo "❌ Build failed! Check Jenkins console output for details."
