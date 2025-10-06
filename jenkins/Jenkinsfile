@@ -20,7 +20,7 @@ pipeline {
                 script {
                     echo "Running OWASP Dependency Check..."
                     sh '''
-                        apt-get update -y && apt-get install -y wget unzip openjdk-11-jre-headless
+                        apt-get update -y && apt-get install -y wget unzip default-jre-headless
                         mkdir -p /opt/dependency-check
                         cd /opt/dependency-check
 
@@ -30,7 +30,7 @@ pipeline {
                             unzip dependency-check-8.4.0-release.zip
                         fi
 
-                        mkdir -p /var/jenkins_home/reports
+                        mkdir -p ${WORKSPACE}/reports
                         cd ${WORKSPACE}/Application-Code/backend
                         /opt/dependency-check/dependency-check/bin/dependency-check.sh --scan . --format HTML --out ${WORKSPACE}/reports/backend-dependency-report.html || true
 
