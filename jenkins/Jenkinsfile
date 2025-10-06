@@ -25,10 +25,10 @@ pipeline {
                         cd /opt/dependency-check
 
                         # Download OWASP Dependency Check CLI if not already present
-                        if [ ! -f dependency-check.sh ]; then
+                        if [ ! -f dependency-check/bin/dependency-check.sh ]; then
                             echo "Downloading OWASP Dependency Check CLI..."
-                            wget https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
-                            unzip dependency-check-8.4.0-release.zip
+                            wget -q https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
+                            unzip -o dependency-check-8.4.0-release.zip
                         fi
 
                         mkdir -p ${WORKSPACE}/reports
