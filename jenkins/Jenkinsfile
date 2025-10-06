@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = "ap-south-1"
+        AWS_ACCOUNT_ID = "688372068524"
+        ECR_REPO = "capstoneproject/docker-images"
+        ECR_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
+            }
+        }
+
+        stage('Dependency Check') {
+            steps {
+                script {
+                    echo "Running OWASP Dependency Check..."
+                    sh '''
+                        mkdir -p reports
+                        cd Application-Code/backend
+                        dependency-check.sh --scan . --format HTML --out ../../reports/backend-dependency-report.html
+
+                        cd ../frontend
+                        dependency-check.sh --scan . --format HTML --out ../../reports/frontend-dependency-report.html
+                    '''
+                }
+            }
+        }
+
+        stage('File Scan') {
+            steps {
+                script {
+                    echo "Scanning for sensitive files..."
+                    sh '''
+                        # Example: scan for .env files
+                        echo "Checking for .env files..."
+                        find Application-Code -type f -name ".env"
+
+                        # Example: scan for AWS credentials inside files
+                        echo "Checking for AWS keys..."
+                        grep -rnE "AKIA[0-9A-Z]{16}" Application-Code || echo "No AWS keys found"
+
+                        # Add more patterns if needed
+                    '''
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+
+                    sh '''
+                        echo "Building backend and frontend Docker images..."
+                        cd Application-Code/backend
+                        docker build -t ${ECR_URI}:backend-${GIT_COMMIT} .
+
+                        cd ../frontend
+                        docker build -t ${ECR_URI}:frontend-${GIT_COMMIT} .
+                    '''
+                }
+            }
+        }
+
+        stage('Login to AWS ECR') {
+            steps {
+                script {
+                    withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
+                        sh '''
+                            echo "Logging in to AWS ECR..."
+                            aws ecr get-login-password --region ${AWS_REGION} | \
+                            docker login --username AWS --password-stdin ${ECR_URI}
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Images to ECR') {
+            steps {
+                script {
+                    sh '''
+                        echo "Pushing images to AWS ECR..."
+                        docker push ${ECR_URI}:backend-${GIT_COMMIT}
+                        docker push ${ECR_URI}:frontend-${GIT_COMMIT}
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Successfully built and pushed images to ECR: ${ECR_URI}"
+        }
+        failure {
+            echo "❌ Build failed! Check Jenkins console for details."
+        }
+    }
+}
