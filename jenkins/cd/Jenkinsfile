@@ -58,7 +58,7 @@ pipeline {
                 echo "🚀 Updating manifests and deploying to Minikube on EC2..."
                 sshagent(['ec2-ssh-key']) {   // Jenkins SSH key credential ID
                     sh """
-                        ssh -o StrictHostKeyChecking=no $EC2_HOST bash -s <<'EOF'
+                        ssh -o StrictHostKeyChecking=no $EC2_HOST bash -c '
                             set -e
                             export KUBECONFIG=/home/ubuntu/.kube/config
                             APP_DIR=/home/ubuntu/capstone-project
@@ -76,7 +76,7 @@ pipeline {
                             kubectl rollout status deployment/frontend-deployment -n capstone || true
 
                             echo "✅ Deployment completed successfully on Minikube EC2!"
-                        EOF
+                        '
                     """
                 }
             }
