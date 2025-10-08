@@ -6,31 +6,47 @@ pipeline {
         AWS_REGION = "ap-south-1"
         ECR_REPO = "capstoneproject/docker-images"
         KUBE_NAMESPACE = "capstone"
-        IMAGE_TAG = ""
+        FRONTEND_TAG = ""
+        BACKEND_TAG = ""
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
             }
         }
 
-        stage('Fetch Latest ECR Image Tag') {
+        stage('Fetch Image Tags from AWS ECR') {
             steps {
                 script {
-                    echo "Fetching latest image tag from AWS ECR..."
-                    IMAGE_TAG = sh(
+                    echo "Fetching latest FRONTEND and BACKEND image tags from AWS ECR..."
+
+                    FRONTEND_TAG = sh(
                         script: """
                             aws ecr describe-images \
                                 --repository-name ${ECR_REPO} \
                                 --region ${AWS_REGION} \
-                                --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
-                                --output text
+                                --query "sort_by(imageDetails,& imagePushedAt)[*].imageTags[]" \
+                                --output text | tr '\\t' '\\n' | grep '^frontend-' | tail -n 1
                         """,
                         returnStdout: true
                     ).trim()
-                    echo "Latest ECR Image Tag: ${IMAGE_TAG}"
+
+                    BACKEND_TAG = sh(
+                        script: """
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO} \
+                                --region ${AWS_REGION} \
+                                --query "sort_by(imageDetails,& imagePushedAt)[*].imageTags[]" \
+                                --output text | tr '\\t' '\\n' | grep '^backend-' | tail -n 1
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "✅ Frontend Tag: ${FRONTEND_TAG}"
+                    echo "✅ Backend Tag: ${BACKEND_TAG}"
                 }
             }
         }
@@ -40,8 +56,8 @@ pipeline {
                 script {
                     echo "📝 Updating image tags in deployment YAMLs..."
                     sh """
-                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:frontend-${IMAGE_TAG}|g" k8s/frontend-deployment.yaml
-                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:backend-${IMAGE_TAG}|g" k8s/backend-deployment.yaml
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" k8s/frontend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" k8s/backend-deployment.yaml
                     """
                 }
             }
@@ -50,6 +66,17 @@ pipeline {
         stage('Deploy to Minikube') {
             steps {
                 script {
+                    // Ensure kubectl is installed if missing
+                    sh '''
+                        if ! command -v kubectl &> /dev/null
+                        then
+                            echo "Installing kubectl..."
+                            curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s \
+                            https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+                            chmod +x kubectl
+                            mv kubectl /usr/local/bin/
+                        fi
+                    '''
                     echo "🚀 Deploying to Minikube..."
                     sh """
                         kubectl config use-context minikube
@@ -65,10 +92,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment successful! Application deployed using latest scanned image."
+            echo "✅ Deployment successful! App deployed using latest scanned images."
         }
         failure {
-            echo "❌ Deployment failed. Check Jenkins logs and Trivy report for issues."
+            echo "❌ Deployment failed. Check Jenkins logs for details."
         }
     }
 }
