@@ -8,7 +8,7 @@ pipeline {
         KUBE_NAMESPACE = "capstone"
         FRONTEND_TAG = ""
         BACKEND_TAG = ""
-        EC2_HOST = "ubuntu@<EC2_PUBLIC_IP>"   // 👈 Replace with your EC2 instance public IP
+        EC2_HOST = "ubuntu@3.110.132.71"   // 👈 Replace with your EC2 instance public IP
     }
 
     stages {
