@@ -8,7 +8,8 @@ pipeline {
         KUBE_NAMESPACE = "capstone"
         FRONTEND_TAG = ""
         BACKEND_TAG = ""
-        EC2_HOST = "ubuntu@3.110.132.71"   // 👈 Replace with your EC2 instance public IP
+        EC2_HOST = "ubuntu@3.110.132.71"   // Replace with your EC2 public IP
+        APP_DIR = "/home/ubuntu/capstone-project"
     }
 
     stages {
@@ -57,8 +58,8 @@ pipeline {
                 script {
                     echo "📝 Updating image tags in deployment YAMLs..."
                     sh """
-                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" k8s/frontend-deployment.yaml
-                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" k8s/backend-deployment.yaml
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" ${APP_DIR}/frontend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" ${APP_DIR}/backend-deployment.yaml
                     """
                 }
             }
@@ -66,20 +67,16 @@ pipeline {
 
         stage('Deploy to Minikube on EC2') {
             steps {
-                echo "🚀 SSH into EC2 and deploy to remote Minikube cluster..."
-                sshagent(['ec2-ssh-key']) {   // 👈 Add your EC2 SSH key credential ID here
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no $EC2_HOST << 'EOF'
-                            echo "🔑 Using kubeconfig on EC2..."
+                echo "🚀 Deploying to Minikube on EC2..."
+                sshagent(['ubuntu']) {   // Jenkins SSH key credential ID
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $EC2_HOST bash -s <<'EOF'
+                            set -e
                             export KUBECONFIG=/home/ubuntu/.kube/config
 
-                            echo "📦 Creating namespace if not exists..."
-                            kubectl get ns capstone || kubectl create ns capstone
-
                             echo "🚀 Applying manifests..."
-                            cd /home/ubuntu/capstone-project
-                            kubectl apply -f k8s/backend-deployment.yaml -n capstone
-                            kubectl apply -f k8s/frontend-deployment.yaml -n capstone
+                            kubectl apply -f ${APP_DIR}/backend-deployment.yaml -n capstone
+                            kubectl apply -f ${APP_DIR}/frontend-deployment.yaml -n capstone
 
                             echo "⏳ Waiting for rollout..."
                             kubectl rollout status deployment/backend-deployment -n capstone || true
@@ -87,7 +84,7 @@ pipeline {
 
                             echo "✅ Deployment completed successfully on Minikube EC2!"
                         EOF
-                    '''
+                    """
                 }
             }
         }
