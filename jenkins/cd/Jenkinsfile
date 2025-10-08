@@ -2,11 +2,11 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION      = "ap-south-1"
-        AWS_ACCOUNT_ID  = "688372068524"
-        ECR_REPO        = "capstoneproject/docker-images"
-        ECR_URI         = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
-        NAMESPACE       = "capstone"
+        AWS_ACCOUNT_ID = "688372068524"
+        AWS_REGION = "ap-south-1"
+        ECR_REPO = "capstoneproject/docker-images"
+        KUBE_NAMESPACE = "capstone"
+        IMAGE_TAG = ""
     }
 
     stages {
@@ -16,14 +16,37 @@ pipeline {
             }
         }
 
-        stage('Configure AWS Auth') {
+        stage('Fetch Latest ECR Image Tag') {
             steps {
-                withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
-                    sh '''
-                        echo "🔐 Logging into AWS ECR..."
-                        aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                    '''
+                script {
+                    echo "Fetching latest image tag from AWS ECR..."
+                    IMAGE_TAG = sh(
+                        script: """
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO} \
+                                --region ${AWS_REGION} \
+                                --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+                                --output text
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    echo "Latest ECR Image Tag: ${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                script {
+                    echo "🔍 Running Trivy vulnerability scan on ECR image..."
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+                        trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG} > trivy-report.txt
+                        echo "===== Trivy Scan Summary ====="
+                        cat trivy-report.txt | tail -n 20
+                    """
+                    archiveArtifacts artifacts: 'trivy-report.txt', fingerprint: true
                 }
             }
         }
@@ -31,14 +54,11 @@ pipeline {
         stage('Update Kubernetes Manifests') {
             steps {
                 script {
-                    GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-
-                    // Replace image tags in YAMLs dynamically
-                    sh '''
-                    echo "Updating image tags in deployment YAMLs..."
-                    sed -i "s|frontend-[a-zA-Z0-9]*|frontend-${GIT_COMMIT}|g" k8s/frontend-deployment.yaml
-                    sed -i "s|backend-[a-zA-Z0-9]*|backend-${GIT_COMMIT}|g" k8s/backend-deployment.yaml
-                    '''
+                    echo "📝 Updating image tags in deployment YAMLs..."
+                    sh """
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:frontend-${IMAGE_TAG}|g" k8s/frontend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:backend-${IMAGE_TAG}|g" k8s/backend-deployment.yaml
+                    """
                 }
             }
         }
@@ -46,15 +66,14 @@ pipeline {
         stage('Deploy to Minikube') {
             steps {
                 script {
-                    echo "🚀 Deploying app to Minikube..."
-                    sh '''
-                        kubectl apply -f k8s/backend-deployment.yaml -n ${NAMESPACE}
-                        kubectl apply -f k8s/frontend-deployment.yaml -n ${NAMESPACE}
-
-                        echo "✅ Deployment successful!"
-                        kubectl get pods -n ${NAMESPACE}
-                        kubectl get svc -n ${NAMESPACE}
-                    '''
+                    echo "🚀 Deploying to Minikube..."
+                    sh """
+                        kubectl config use-context minikube
+                        kubectl apply -f k8s/backend-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl apply -f k8s/frontend-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl rollout status deployment/backend-deployment -n ${KUBE_NAMESPACE}
+                        kubectl rollout status deployment/frontend-deployment -n ${KUBE_NAMESPACE}
+                    """
                 }
             }
         }
@@ -62,10 +81,10 @@ pipeline {
 
     post {
         success {
-            echo "🎉 Application successfully deployed on Minikube!"
+            echo "✅ Deployment successful! Application deployed using latest scanned image."
         }
         failure {
-            echo "❌ Deployment failed. Check Jenkins logs for details."
+            echo "❌ Deployment failed. Check Jenkins logs and Trivy report for issues."
         }
     }
 }
