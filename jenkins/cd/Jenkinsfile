@@ -8,6 +8,7 @@ pipeline {
         KUBE_NAMESPACE = "capstone"
         FRONTEND_TAG = ""
         BACKEND_TAG = ""
+        EC2_HOST = "ubuntu@<EC2_PUBLIC_IP>"   // 👈 Replace with your EC2 instance public IP
     }
 
     stages {
@@ -63,58 +64,34 @@ pipeline {
             }
         }
 
-        stage('Deploy to Minikube') {
-    steps {
-        echo "🚀 Deploying to remote Minikube cluster on AWS EC2..."
-        withCredentials([file(credentialsId: 'minikube-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-            sh '''
-                # Use EC2 Minikube kubeconfig
-                export KUBECONFIG=$KUBECONFIG_FILE
-                
-                # Test connection
-                kubectl get nodes
-                
-                # Create namespace if not exists
-                kubectl get ns capstone || kubectl create ns capstone
-                
-                # Deploy backend and frontend
-                kubectl apply -f k8s/backend-deployment.yaml -n capstone
-                kubectl apply -f k8s/frontend-deployment.yaml -n capstone
-                
-                # Show rollout status
-                kubectl rollout status deployment/backend-deployment -n capstone || true
-                kubectl rollout status deployment/frontend-deployment -n capstone || true
-            '''
-        }
-    }
-}
-        
-        /*stage('Deploy to Minikube') {
+        stage('Deploy to Minikube on EC2') {
             steps {
-               script {
-                    // Ensure kubectl is installed if missing
-                   sh '''
-                        if ! command -v kubectl &> /dev/null
-                        then
-                            echo "Installing kubectl..."
-                            curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s \
-                            https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            mv kubectl /usr/local/bin/
-                        fi
+                echo "🚀 SSH into EC2 and deploy to remote Minikube cluster..."
+                sshagent(['ec2-ssh-key']) {   // 👈 Add your EC2 SSH key credential ID here
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no $EC2_HOST << 'EOF'
+                            echo "🔑 Using kubeconfig on EC2..."
+                            export KUBECONFIG=/home/ubuntu/.kube/config
+
+                            echo "📦 Creating namespace if not exists..."
+                            kubectl get ns capstone || kubectl create ns capstone
+
+                            echo "🚀 Applying manifests..."
+                            cd /home/ubuntu/capstone-project
+                            kubectl apply -f k8s/backend-deployment.yaml -n capstone
+                            kubectl apply -f k8s/frontend-deployment.yaml -n capstone
+
+                            echo "⏳ Waiting for rollout..."
+                            kubectl rollout status deployment/backend-deployment -n capstone || true
+                            kubectl rollout status deployment/frontend-deployment -n capstone || true
+
+                            echo "✅ Deployment completed successfully on Minikube EC2!"
+                        EOF
                     '''
-                    echo "🚀 Deploying to Minikube..."
-                    sh """
-                        kubectl config use-context minikube
-                        kubectl apply -f k8s/backend-deployment.yaml -n ${KUBE_NAMESPACE}
-                        kubectl apply -f k8s/frontend-deployment.yaml -n ${KUBE_NAMESPACE}
-                        kubectl rollout status deployment/backend-deployment -n ${KUBE_NAMESPACE}
-                        kubectl rollout status deployment/frontend-deployment -n ${KUBE_NAMESPACE}
-                    """
                 }
             }
-        }*/
-    } 
+        }
+    }
 
     post {
         success {
