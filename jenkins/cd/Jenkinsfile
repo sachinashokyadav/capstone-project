@@ -64,10 +64,36 @@ pipeline {
         }
 
         stage('Deploy to Minikube') {
+    steps {
+        echo "🚀 Deploying to remote Minikube cluster on AWS EC2..."
+        withCredentials([file(credentialsId: 'minikube-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+            sh '''
+                # Use EC2 Minikube kubeconfig
+                export KUBECONFIG=$KUBECONFIG_FILE
+                
+                # Test connection
+                kubectl get nodes
+                
+                # Create namespace if not exists
+                kubectl get ns capstone || kubectl create ns capstone
+                
+                # Deploy backend and frontend
+                kubectl apply -f k8s/backend-deployment.yaml -n capstone
+                kubectl apply -f k8s/frontend-deployment.yaml -n capstone
+                
+                # Show rollout status
+                kubectl rollout status deployment/backend-deployment -n capstone || true
+                kubectl rollout status deployment/frontend-deployment -n capstone || true
+            '''
+        }
+    }
+}
+        
+        /*stage('Deploy to Minikube') {
             steps {
-                script {
+               script {
                     // Ensure kubectl is installed if missing
-                    sh '''
+                   sh '''
                         if ! command -v kubectl &> /dev/null
                         then
                             echo "Installing kubectl..."
@@ -88,7 +114,7 @@ pipeline {
                 }
             }
         }
-    }
+    } */
 
     post {
         success {
