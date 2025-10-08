@@ -53,30 +53,23 @@ pipeline {
             }
         }
 
-        stage('Update Kubernetes Manifests') {
+        stage('Update & Deploy on Minikube EC2') {
             steps {
-                script {
-                    echo "📝 Updating image tags in deployment YAMLs..."
-                    sh """
-                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" ${APP_DIR}/frontend-deployment.yaml
-                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" ${APP_DIR}/backend-deployment.yaml
-                    """
-                }
-            }
-        }
-
-        stage('Deploy to Minikube on EC2') {
-            steps {
-                echo "🚀 Deploying to Minikube on EC2..."
+                echo "🚀 Updating manifests and deploying to Minikube on EC2..."
                 sshagent(['ubuntu']) {   // Jenkins SSH key credential ID
                     sh """
                         ssh -o StrictHostKeyChecking=no $EC2_HOST bash -s <<'EOF'
                             set -e
                             export KUBECONFIG=/home/ubuntu/.kube/config
+                            APP_DIR=/home/ubuntu/capstone-project
+
+                            echo "📝 Updating image tags in deployment YAMLs..."
+                            sed -i "s|image: .*frontend.*|image: 688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/docker-images:${FRONTEND_TAG}|g" \$APP_DIR/frontend-deployment.yaml
+                            sed -i "s|image: .*backend.*|image: 688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/docker-images:${BACKEND_TAG}|g" \$APP_DIR/backend-deployment.yaml
 
                             echo "🚀 Applying manifests..."
-                            kubectl apply -f ${APP_DIR}/backend-deployment.yaml -n capstone
-                            kubectl apply -f ${APP_DIR}/frontend-deployment.yaml -n capstone
+                            kubectl apply -f \$APP_DIR/backend-deployment.yaml -n capstone
+                            kubectl apply -f \$APP_DIR/frontend-deployment.yaml -n capstone
 
                             echo "⏳ Waiting for rollout..."
                             kubectl rollout status deployment/backend-deployment -n capstone || true
