@@ -7,40 +7,37 @@ pipeline {
         ECR_REPO        = "capstoneproject/docker-images"
         ECR_URI         = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
         NAMESPACE       = "capstone"
-        GIT_REPO        = "https://github.com/sachinashokyadav/capstone-project.git"
     }
 
     stages {
-        stage('Checkout Deployment Manifests') {
+        stage('Checkout Code') {
             steps {
-                git branch: 'main', url: "${GIT_REPO}"
+                git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
             }
         }
 
-        stage('Login to AWS ECR') {
+        stage('Configure AWS Auth') {
             steps {
-                script {
-                    echo "🔐 Logging into AWS ECR..."
-                    withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
-                        sh '''
-                            aws ecr get-login-password --region ${AWS_REGION} | \
-                            docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                        '''
-                    }
+                withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
+                    sh '''
+                        echo "🔐 Logging into AWS ECR..."
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                    '''
                 }
             }
         }
 
-        stage('Update Image Tags in YAMLs') {
+        stage('Update Kubernetes Manifests') {
             steps {
                 script {
-                    echo "🖋️ Updating image tags in deployment YAMLs..."
-                    // Assume latest images pushed in CI have tag from latest commit
                     GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
 
+                    // Replace image tags in YAMLs dynamically
                     sh '''
-                    sed -i "s|${ECR_URI}:frontend-.*|${ECR_URI}:frontend-${GIT_COMMIT}|g" frontend-deployment.yaml
-                    sed -i "s|${ECR_URI}:backend-.*|${ECR_URI}:backend-${GIT_COMMIT}|g" backend-deployment.yaml
+                    echo "Updating image tags in deployment YAMLs..."
+                    sed -i "s|frontend-[a-zA-Z0-9]*|frontend-${GIT_COMMIT}|g" k8s/frontend-deployment.yaml
+                    sed -i "s|backend-[a-zA-Z0-9]*|backend-${GIT_COMMIT}|g" k8s/backend-deployment.yaml
                     '''
                 }
             }
@@ -49,24 +46,12 @@ pipeline {
         stage('Deploy to Minikube') {
             steps {
                 script {
-                    echo "🚀 Deploying application to Minikube..."
+                    echo "🚀 Deploying app to Minikube..."
                     sh '''
-                        kubectl apply -f backend-deployment.yaml -n ${NAMESPACE}
-                        kubectl apply -f frontend-deployment.yaml -n ${NAMESPACE}
+                        kubectl apply -f k8s/backend-deployment.yaml -n ${NAMESPACE}
+                        kubectl apply -f k8s/frontend-deployment.yaml -n ${NAMESPACE}
 
-                        echo "⏳ Waiting for pods to be ready..."
-                        kubectl rollout status deployment/backend-deployment -n ${NAMESPACE} --timeout=120s
-                        kubectl rollout status deployment/frontend-deployment -n ${NAMESPACE} --timeout=120s
-                    '''
-                }
-            }
-        }
-
-        stage('Verify Deployment') {
-            steps {
-                script {
-                    echo "🔍 Checking services and pods..."
-                    sh '''
+                        echo "✅ Deployment successful!"
                         kubectl get pods -n ${NAMESPACE}
                         kubectl get svc -n ${NAMESPACE}
                     '''
@@ -77,10 +62,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Application successfully deployed to Minikube!"
+            echo "🎉 Application successfully deployed on Minikube!"
         }
         failure {
-            echo "❌ Deployment failed. Check logs."
+            echo "❌ Deployment failed. Check Jenkins logs for details."
         }
     }
 }
