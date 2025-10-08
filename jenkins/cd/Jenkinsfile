@@ -1,0 +1,86 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION      = "ap-south-1"
+        AWS_ACCOUNT_ID  = "688372068524"
+        ECR_REPO        = "capstoneproject/docker-images"
+        ECR_URI         = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        NAMESPACE       = "capstone"
+        GIT_REPO        = "https://github.com/sachinashokyadav/capstone-project.git"
+    }
+
+    stages {
+        stage('Checkout Deployment Manifests') {
+            steps {
+                git branch: 'main', url: "${GIT_REPO}"
+            }
+        }
+
+        stage('Login to AWS ECR') {
+            steps {
+                script {
+                    echo "🔐 Logging into AWS ECR..."
+                    withAWS(region: "${AWS_REGION}", credentials: 'aws-credentials') {
+                        sh '''
+                            aws ecr get-login-password --region ${AWS_REGION} | \
+                            docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Update Image Tags in YAMLs') {
+            steps {
+                script {
+                    echo "🖋️ Updating image tags in deployment YAMLs..."
+                    // Assume latest images pushed in CI have tag from latest commit
+                    GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+
+                    sh '''
+                    sed -i "s|${ECR_URI}:frontend-.*|${ECR_URI}:frontend-${GIT_COMMIT}|g" frontend-deployment.yaml
+                    sed -i "s|${ECR_URI}:backend-.*|${ECR_URI}:backend-${GIT_COMMIT}|g" backend-deployment.yaml
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Minikube') {
+            steps {
+                script {
+                    echo "🚀 Deploying application to Minikube..."
+                    sh '''
+                        kubectl apply -f backend-deployment.yaml -n ${NAMESPACE}
+                        kubectl apply -f frontend-deployment.yaml -n ${NAMESPACE}
+
+                        echo "⏳ Waiting for pods to be ready..."
+                        kubectl rollout status deployment/backend-deployment -n ${NAMESPACE} --timeout=120s
+                        kubectl rollout status deployment/frontend-deployment -n ${NAMESPACE} --timeout=120s
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo "🔍 Checking services and pods..."
+                    sh '''
+                        kubectl get pods -n ${NAMESPACE}
+                        kubectl get svc -n ${NAMESPACE}
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Application successfully deployed to Minikube!"
+        }
+        failure {
+            echo "❌ Deployment failed. Check logs."
+        }
+    }
+}
