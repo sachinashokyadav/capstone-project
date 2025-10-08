@@ -56,7 +56,7 @@ pipeline {
         stage('Update & Deploy on Minikube EC2') {
             steps {
                 echo "🚀 Updating manifests and deploying to Minikube on EC2..."
-                sshagent(['ubuntu']) {   // Jenkins SSH key credential ID
+                sshagent(['ec2-ssh-key']) {   // Jenkins SSH key credential ID
                     sh """
                         ssh -o StrictHostKeyChecking=no $EC2_HOST bash -s <<'EOF'
                             set -e
