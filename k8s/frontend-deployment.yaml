@@ -19,7 +19,7 @@ spec:
         - name: ecr-secret
       containers:
         - name: frontend
-          image: 688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/docker-images:frontend-9158c4ff364bdfde90fa3478bcd1d273415af654
+          image: 688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/docker-images:frontend-41135eb1c2a074fcd0acd671d17257d0a703382f
           ports:
             - containerPort: 3000
           env:
