@@ -1,0 +1,104 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_ACCOUNT_ID = "688372068524"
+        AWS_REGION = "ap-south-1"
+        ECR_REPO = "capstoneproject/docker-images"
+        KUBE_NAMESPACE = "capstone"
+        FRONTEND_TAG = ""
+        BACKEND_TAG = ""
+        CLUSTER_NAME = "march-2025-eks"       // ✅ your EKS cluster name
+        KUBECONFIG_PATH = "$WORKSPACE/kubeconfig"
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
+            }
+        }
+
+        stage('Configure AWS CLI & Kubeconfig') {
+            steps {
+                script {
+                    echo "⚙️ Configuring AWS CLI and EKS kubeconfig..."
+
+                    sh """
+                        aws configure set region ${AWS_REGION}
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME} --kubeconfig ${KUBECONFIG_PATH}
+                    """
+                }
+            }
+        }
+
+        stage('Fetch Latest Image Tags from AWS ECR') {
+            steps {
+                script {
+                    echo "🔍 Fetching latest image tags from ECR..."
+
+                    FRONTEND_TAG = sh(
+                        script: """
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO} \
+                                --region ${AWS_REGION} \
+                                --query "sort_by(imageDetails,& imagePushedAt)[*].imageTags[]" \
+                                --output text | tr '\\t' '\\n' | grep '^frontend-' | tail -n 1
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    BACKEND_TAG = sh(
+                        script: """
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO} \
+                                --region ${AWS_REGION} \
+                                --query "sort_by(imageDetails,& imagePushedAt)[*].imageTags[]" \
+                                --output text | tr '\\t' '\\n' | grep '^backend-' | tail -n 1
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "✅ FRONTEND_TAG: ${FRONTEND_TAG}"
+                    echo "✅ BACKEND_TAG: ${BACKEND_TAG}"
+                }
+            }
+        }
+
+        stage('Deploy to AWS EKS') {
+            steps {
+                script {
+                    echo "🚀 Deploying new images to AWS EKS cluster..."
+
+                    sh """
+                        export KUBECONFIG=${KUBECONFIG_PATH}
+
+                        echo "📝 Updating image tags in manifests..."
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" backend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" frontend-deployment.yaml
+
+                        echo "📦 Applying manifests..."
+                        kubectl apply -f backend-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl apply -f frontend-deployment.yaml -n ${KUBE_NAMESPACE}
+
+                        echo "⏳ Waiting for rollout..."
+                        kubectl rollout status deployment/backend-deployment -n ${KUBE_NAMESPACE} || true
+                        kubectl rollout status deployment/frontend-deployment -n ${KUBE_NAMESPACE} || true
+
+                        echo "✅ Deployment completed successfully on AWS EKS!"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful! Latest Docker images deployed to AWS EKS."
+        }
+        failure {
+            echo "❌ Deployment failed. Check Jenkins logs for details."
+        }
+    }
+}
