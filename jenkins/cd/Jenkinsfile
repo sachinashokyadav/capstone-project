@@ -9,7 +9,8 @@ pipeline {
         FRONTEND_TAG = ""
         BACKEND_TAG = ""
         CLUSTER_NAME = "march-2025-eks"       // ✅ your EKS cluster name
-        KUBECONFIG_PATH = "$WORKSPACE/kubeconfig"
+        KUBECONFIG_PATH = "${WORKSPACE}/kubeconfig"
+        K8S_DIR = "${WORKSPACE}/k8s"          // ✅ Path where deployment YAMLs are located
     }
 
     stages {
@@ -75,12 +76,12 @@ pipeline {
                         export KUBECONFIG=${KUBECONFIG_PATH}
 
                         echo "📝 Updating image tags in manifests..."
-                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" k8s/backend-deployment.yaml
-                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" k8s/frontend-deployment.yaml
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" ${K8S_DIR}/frontend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" ${K8S_DIR}/backend-deployment.yaml
 
                         echo "📦 Applying manifests..."
-                        kubectl apply -f backend-deployment.yaml -n ${KUBE_NAMESPACE}
-                        kubectl apply -f frontend-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl apply -f ${K8S_DIR}/backend-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl apply -f ${K8S_DIR}/frontend-deployment.yaml -n ${KUBE_NAMESPACE}
 
                         echo "⏳ Waiting for rollout..."
                         kubectl rollout status deployment/backend-deployment -n ${KUBE_NAMESPACE} || true
