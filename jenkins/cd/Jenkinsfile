@@ -75,8 +75,8 @@ pipeline {
                         export KUBECONFIG=${KUBECONFIG_PATH}
 
                         echo "📝 Updating image tags in manifests..."
-                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" backend-deployment.yaml
-                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" frontend-deployment.yaml
+                        sed -i "s|image: .*frontend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${FRONTEND_TAG}|g" k8s/backend-deployment.yaml
+                        sed -i "s|image: .*backend.*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${BACKEND_TAG}|g" k8s/frontend-deployment.yaml
 
                         echo "📦 Applying manifests..."
                         kubectl apply -f backend-deployment.yaml -n ${KUBE_NAMESPACE}
