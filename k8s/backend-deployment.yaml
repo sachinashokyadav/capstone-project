@@ -21,38 +21,10 @@ spec:
       - name: backend
         image: 688372068524.dkr.ecr.ap-south-1.amazonaws.com/capstoneproject/docker-images:backend-9158c4ff364bdfde90fa3478bcd1d273415af654
         ports:
-        - containerPort: 3500   # ✅ Backend listens on this port
+        - containerPort: 3500   # ✅ Corrected port
         env:
         - name: PORT
           value: "3500"
-        # ✅ MongoDB connection environment variables
-        - name: MONGO_CONN_STR
-          value: "mongodb://admin:password123@mongo-service:27017/capstoneDB?authSource=admin"
-        - name: MONGO_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: mongo-secret
-              key: mongo-root-username
-        - name: MONGO_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mongo-secret
-              key: mongo-root-password
-        - name: USE_DB_AUTH
-          value: "true"
-        # Optional: improve container startup reliability
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 3500
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 3500
-          initialDelaySeconds: 15
-          periodSeconds: 20
 ---
 apiVersion: v1
 kind: Service
@@ -64,6 +36,6 @@ spec:
     app: backend
   ports:
     - protocol: TCP
-      port: 5000        # ✅ Frontend will use this port
-      targetPort: 3500  # ✅ Matches backend container port
+      port: 5000        # ✅ Frontend will still call this
+      targetPort: 3500  # ✅ Match backend container port
   type: ClusterIP
