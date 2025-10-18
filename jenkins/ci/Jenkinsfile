@@ -6,6 +6,8 @@ pipeline {
         AWS_ACCOUNT_ID  = "688372068524"
         ECR_REPO        = "capstoneproject/docker-images"
         ECR_URI         = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        SONARQUBE_SERVER = "SonarQubeServer"      // Name configured in Jenkins for SonarQube
+        SONARQUBE_SCANNER = "SonarQubeScanner"    // Name configured in Jenkins for Scanner tool
     }
 
     stages {
@@ -14,6 +16,35 @@ pipeline {
                 git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
             }
         }
+
+      stage('Code Quality Analysis (SonarQube)') {
+            steps {
+                script {
+                    echo "🔎 Running SonarQube Code Analysis..."
+                    withSonarQubeEnv("${SONARQUBE_SERVER}") {
+                        // Run analysis for both frontend and backend
+                        sh '''
+                            cd ${WORKSPACE}/Application-Code/backend
+                            ${SONARQUBE_SCANNER}/bin/sonar-scanner \
+                                -Dsonar.projectKey=backend \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONAR_HOST_URL \
+                                -Dsonar.login=$SONAR_AUTH_TOKEN \
+                                -Dsonar.projectName="Backend Analysis"
+
+                            cd ${WORKSPACE}/Application-Code/frontend
+                            ${SONARQUBE_SCANNER}/bin/sonar-scanner \
+                                -Dsonar.projectKey=frontend \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONAR_HOST_URL \
+                                -Dsonar.login=$SONAR_AUTH_TOKEN \
+                                -Dsonar.projectName="Frontend Analysis"
+                        '''
+                    }
+                }
+            }
+        }
+
 
         stage('Dependency Check') {
             steps {
@@ -24,7 +55,6 @@ pipeline {
                         mkdir -p /opt/dependency-check
                         cd /opt/dependency-check
 
-                        # Download OWASP Dependency Check CLI if not already present
                         if [ ! -f dependency-check/bin/dependency-check.sh ]; then
                             echo "Downloading OWASP Dependency Check CLI..."
                             wget -q https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
@@ -62,6 +92,7 @@ pipeline {
             }
         }
 
+        
         stage('Build Docker Images') {
             steps {
                 script {
@@ -85,7 +116,6 @@ pipeline {
                     sh '''
                         apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
-                        # Install Trivy if not already installed
                         if ! command -v trivy > /dev/null; then
                             wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
                             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
