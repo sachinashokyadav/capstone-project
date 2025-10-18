@@ -5,13 +5,11 @@ FROM node:18-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Copy dependency files
+# Copy dependency files and install dependencies
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
 
-# Copy all frontend source code and build it
+# Copy frontend source code and build
 COPY . .
 RUN npm run build
 
@@ -20,11 +18,12 @@ RUN npm run build
 # ==============================
 FROM nginx:alpine
 
-# Copy build output to Nginx’s HTML directory
+# Remove default Nginx HTML and copy build output
+RUN rm -rf /usr/share/nginx/html/*
 COPY --from=build /usr/src/app/build /usr/share/nginx/html
 
 # Expose default Nginx port
 EXPOSE 80
 
-# Start Nginx server
+# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
