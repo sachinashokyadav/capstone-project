@@ -1,7 +1,7 @@
 # ==============================
 # Stage 1: Build frontend
 # ==============================
-FROM node:18-alpine AS build
+FROM node:16-alpine AS build
 
 WORKDIR /usr/src/app
 
