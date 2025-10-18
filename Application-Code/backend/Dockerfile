@@ -5,11 +5,14 @@ FROM node:16-alpine AS builder
 
 WORKDIR /usr/src/app
 
+# Use npm 8 to handle old package-lock.json
+RUN npm install -g npm@8
+
 # Copy dependency files and install production dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --only=production --legacy-peer-deps --cache /usr/src/app/.npm-cache
 
-# Copy the rest of the backend source
+# Copy backend source code
 COPY . .
 
 # ==============================
@@ -19,7 +22,7 @@ FROM node:16-alpine
 
 WORKDIR /usr/src/app
 
-# Copy only necessary files from builder
+# Copy built app from builder
 COPY --from=builder /usr/src/app /usr/src/app
 
 # Expose backend port
