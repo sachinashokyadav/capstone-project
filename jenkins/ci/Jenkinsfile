@@ -18,33 +18,35 @@ pipeline {
         }
 
       stage('Code Quality Analysis (SonarQube)') {
-            steps {
-                script {
-                    echo "🔎 Running SonarQube Code Analysis..."
-                    withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                        // Run analysis for both frontend and backend
-                        sh '''
-                            cd ${WORKSPACE}/Application-Code/backend
-                            ${SONARQUBE_SCANNER}/bin/sonar-scanner \
-                                -Dsonar.projectKey=backend \
-                                -Dsonar.sources=. \
-                                -Dsonar.host.url=$SONAR_HOST_URL \
-                                -Dsonar.login=$SONAR_AUTH_TOKEN \
-                                -Dsonar.projectName="Backend Analysis"
+    steps {
+        script {
+            echo "🔎 Running SonarQube Code Analysis..."
 
-                            cd ${WORKSPACE}/Application-Code/frontend
-                            ${SONARQUBE_SCANNER}/bin/sonar-scanner \
-                                -Dsonar.projectKey=frontend \
-                                -Dsonar.sources=. \
-                                -Dsonar.host.url=$SONAR_HOST_URL \
-                                -Dsonar.login=$SONAR_AUTH_TOKEN \
-                                -Dsonar.projectName="Frontend Analysis"
-                        '''
-                    }
-                }
+            // Get SonarQube scanner path from Jenkins tool configuration
+            def scannerHome = tool name: "${SONARQUBE_SCANNER}", type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+
+            withSonarQubeEnv("${SONARQUBE_SERVER}") {
+                sh """
+                    cd ${WORKSPACE}/Application-Code/backend
+                    ${scannerHome}/bin/sonar-scanner \
+                        -Dsonar.projectKey=backend \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN \
+                        -Dsonar.projectName="Backend Analysis"
+
+                    cd ${WORKSPACE}/Application-Code/frontend
+                    ${scannerHome}/bin/sonar-scanner \
+                        -Dsonar.projectKey=frontend \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN \
+                        -Dsonar.projectName="Frontend Analysis"
+                """
             }
         }
-
+    }
+}
 
         stage('Dependency Check') {
             steps {
