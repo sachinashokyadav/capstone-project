@@ -1,7 +1,7 @@
 # ==============================
 # Stage 1: Build dependencies
 # ==============================
-FROM node:18-alpine AS builder
+FROM node:16-alpine AS builder
 
 WORKDIR /usr/src/app
 
@@ -15,7 +15,7 @@ COPY . .
 # ==============================
 # Stage 2: Create final lightweight image
 # ==============================
-FROM node:18-alpine
+FROM node:16-alpine
 
 WORKDIR /usr/src/app
 
