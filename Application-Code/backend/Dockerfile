@@ -5,10 +5,8 @@ FROM node:18-alpine AS builder
 
 WORKDIR /usr/src/app
 
-# Copy dependency files
+# Copy dependency files and install production dependencies
 COPY package*.json ./
-
-# Install only production dependencies
 RUN npm ci --only=production
 
 # Copy the rest of the backend source
@@ -21,10 +19,10 @@ FROM node:18-alpine
 
 WORKDIR /usr/src/app
 
-# Copy only the necessary built code and dependencies
+# Copy only necessary files from builder
 COPY --from=builder /usr/src/app /usr/src/app
 
-# Expose backend port (adjust if different)
+# Expose backend port
 EXPOSE 3000
 
 # Run backend
