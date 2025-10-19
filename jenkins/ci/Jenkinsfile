@@ -111,39 +111,52 @@ pipeline {
         }
 
         stage('Image Vulnerability Scan (Trivy)') {
-            steps {
-                script {
-                    echo "🛡️ Scanning Docker images with Trivy..."
-                    sh '''
-                        apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
+    steps {
+        script {
+            echo "⚡ Running optimized Trivy scan..."
+            sh '''
+                apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
-                        if ! command -v trivy > /dev/null; then
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-                            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
-                            apt-get update -y && apt-get install -y trivy
-                        fi
+                # Install Trivy if missing
+                if ! command -v trivy > /dev/null; then
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                    echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+                    apt-get update -y && apt-get install -y trivy
+                fi
 
-                        mkdir -p ${WORKSPACE}/reports
+                mkdir -p /usr/local/share/trivy
+                if [ ! -f /usr/local/share/trivy/html.tpl ]; then
+                    wget -q https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -O /usr/local/share/trivy/html.tpl
+                fi
 
-                        # Download HTML template if missing
-                        if [ ! -f /usr/local/share/trivy/html.tpl ]; then
-                            mkdir -p /usr/local/share/trivy
-                            wget -q https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -O /usr/local/share/trivy/html.tpl
-                        fi
+                mkdir -p ${WORKSPACE}/reports
 
-                        echo "Scanning backend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL \
-                            --format template --template "/usr/local/share/trivy/html.tpl" \
-                            -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:backend-${GIT_COMMIT} || true
+                echo "🧠 Using cached DB if available to speed up scan"
+                trivy --download-db-only --cache-dir /tmp/trivy-cache
 
-                        echo "Scanning frontend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL \
-                            --format template --template "/usr/local/share/trivy/html.tpl" \
-                            -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:frontend-${GIT_COMMIT} || true
-                    '''
-                }
-            }
+                echo "🚀 Scanning backend image (vuln only)..."
+                trivy image --scanners vuln \
+                    --ignore-unfixed \
+                    --cache-dir /tmp/trivy-cache \
+                    --timeout 5m \
+                    --exit-code 0 \
+                    --severity HIGH,CRITICAL \
+                    --format template --template "/usr/local/share/trivy/html.tpl" \
+                    -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:backend-${GIT_COMMIT} || true
+
+                echo "🚀 Scanning frontend image (vuln only)..."
+                trivy image --scanners vuln \
+                    --ignore-unfixed \
+                    --cache-dir /tmp/trivy-cache \
+                    --timeout 5m \
+                    --exit-code 0 \
+                    --severity HIGH,CRITICAL \
+                    --format template --template "/usr/local/share/trivy/html.tpl" \
+                    -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:frontend-${GIT_COMMIT} || true
+            '''
         }
+    }
+}
 
         stage('Login to AWS ECR') {
             steps {
