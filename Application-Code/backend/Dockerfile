@@ -1,31 +1,29 @@
 # ==============================
-# Stage 1: Build dependencies
+# Stage 1: Dependencies
 # ==============================
-FROM node:14-alpine AS builder
+FROM node:16-alpine AS deps
 
 WORKDIR /usr/src/app
 
-# Copy dependency files
+# Install only production dependencies
 COPY package*.json ./
+RUN npm ci --only=production
 
-# Install dependencies with compatibility flags
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+# ==============================
+# Stage 2: Runtime
+# ==============================
+FROM node:16-alpine
 
-# Copy backend source code
+WORKDIR /usr/src/app
+
+# Copy installed dependencies from build stage
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+# Copy application source
 COPY . .
 
-# ==============================
-# Stage 2: Create final image
-# ==============================
-FROM node:14-alpine
+# Expose app port
+EXPOSE 8080
 
-WORKDIR /usr/src/app
-
-# Copy app from builder
-COPY --from=builder /usr/src/app .
-
-# Expose backend port
-EXPOSE 3000
-
-# Run backend
+# Run app
 CMD ["node", "index.js"]
