@@ -2,19 +2,16 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION       = "ap-south-1"
-        AWS_ACCOUNT_ID   = "688372068524"
-        ECR_REPO         = "capstoneproject/docker-images"
-        ECR_URI          = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
-        SONARQUBE_SERVER = "SonarQubeServer"
-        SONARQUBE_SCANNER = "SonarQubeScanner"
-
-        // Fix network timeouts during Docker push
-        DOCKER_CLIENT_TIMEOUT = '300'
-        COMPOSE_HTTP_TIMEOUT  = '300'
+        AWS_REGION        = "ap-south-1"
+        AWS_ACCOUNT_ID    = "688372068524"
+        ECR_REPO          = "capstoneproject/docker-images"
+        ECR_URI           = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        SONARQUBE_SERVER  = "SonarQubeServer"       // Name configured in Jenkins
+        SONARQUBE_SCANNER = "SonarQubeScanner"      // Name configured in Jenkins
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/sachinashokyadav/capstone-project.git'
@@ -56,7 +53,6 @@ pipeline {
                     echo "🔍 Running OWASP Dependency Check..."
                     sh '''
                         apt-get update -y && apt-get install -y wget unzip default-jre-headless
-
                         mkdir -p /opt/dependency-check
                         cd /opt/dependency-check
 
@@ -109,9 +105,6 @@ pipeline {
 
                         cd ../frontend
                         docker build -t ${ECR_URI}:frontend-${GIT_COMMIT} .
-
-                        echo "🧹 Cleaning up unused Docker resources to save space..."
-                        docker system prune -af || true
                     '''
                 }
             }
@@ -132,11 +125,21 @@ pipeline {
 
                         mkdir -p ${WORKSPACE}/reports
 
+                        # Download HTML template if missing
+                        if [ ! -f /usr/local/share/trivy/html.tpl ]; then
+                            mkdir -p /usr/local/share/trivy
+                            wget -q https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -O /usr/local/share/trivy/html.tpl
+                        fi
+
                         echo "Scanning backend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:backend-${GIT_COMMIT} || true
+                        trivy image --exit-code 0 --severity HIGH,CRITICAL \
+                            --format template --template "/usr/local/share/trivy/html.tpl" \
+                            -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:backend-${GIT_COMMIT} || true
 
                         echo "Scanning frontend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:frontend-${GIT_COMMIT} || true
+                        trivy image --exit-code 0 --severity HIGH,CRITICAL \
+                            --format template --template "/usr/local/share/trivy/html.tpl" \
+                            -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:frontend-${GIT_COMMIT} || true
                     '''
                 }
             }
@@ -162,10 +165,10 @@ pipeline {
                     echo "📤 Pushing Docker images to AWS ECR..."
                     sh '''
                         echo "Pushing backend image..."
-                        docker push --max-concurrent-uploads=1 ${ECR_URI}:backend-${GIT_COMMIT} || sleep 30 && docker push --max-concurrent-uploads=1 ${ECR_URI}:backend-${GIT_COMMIT}
+                        docker push ${ECR_URI}:backend-${GIT_COMMIT}
 
                         echo "Pushing frontend image..."
-                        docker push --max-concurrent-uploads=1 ${ECR_URI}:frontend-${GIT_COMMIT} || sleep 30 && docker push --max-concurrent-uploads=1 ${ECR_URI}:frontend-${GIT_COMMIT}
+                        docker push ${ECR_URI}:frontend-${GIT_COMMIT}
                     '''
                 }
             }
