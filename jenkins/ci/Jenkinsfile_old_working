@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION      = "ap-south-1"
-        AWS_ACCOUNT_ID  = "688372068524"
-        ECR_REPO        = "capstoneproject/docker-images"
-        ECR_URI         = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
-        SONARQUBE_SERVER = "SonarQubeServer"      // Name configured in Jenkins for SonarQube
-        SONARQUBE_SCANNER = "SonarQubeScanner"    // Name configured in Jenkins for Scanner tool
+        AWS_REGION        = "ap-south-1"
+        AWS_ACCOUNT_ID    = "688372068524"
+        ECR_REPO          = "capstoneproject/docker-images"
+        ECR_URI           = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        SONARQUBE_SERVER  = "SonarQubeServer"       // Jenkins configured server
+        SONARQUBE_SCANNER = "SonarQubeScanner"      // Jenkins configured scanner
     }
 
     stages {
@@ -17,36 +17,34 @@ pipeline {
             }
         }
 
-      stage('Code Quality Analysis (SonarQube)') {
-    steps {
-        script {
-            echo "🔎 Running SonarQube Code Analysis..."
+        stage('Code Quality Analysis (SonarQube)') {
+            steps {
+                script {
+                    echo "🔎 Running SonarQube Code Analysis..."
+                    def scannerHome = tool name: "${SONARQUBE_SCANNER}", type: 'hudson.plugins.sonar.SonarRunnerInstallation'
 
-            // Get SonarQube scanner path from Jenkins tool configuration
-            def scannerHome = tool name: "${SONARQUBE_SCANNER}", type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                    withSonarQubeEnv("${SONARQUBE_SERVER}") {
+                        sh """
+                            cd ${WORKSPACE}/Application-Code/backend
+                            ${scannerHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=backend \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONAR_HOST_URL \
+                                -Dsonar.login=$SONAR_AUTH_TOKEN \
+                                -Dsonar.projectName="Backend Analysis"
 
-            withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                sh """
-                    cd ${WORKSPACE}/Application-Code/backend
-                    ${scannerHome}/bin/sonar-scanner \
-                        -Dsonar.projectKey=backend \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=$SONAR_HOST_URL \
-                        -Dsonar.login=$SONAR_AUTH_TOKEN \
-                        -Dsonar.projectName="Backend Analysis"
-
-                    cd ${WORKSPACE}/Application-Code/frontend
-                    ${scannerHome}/bin/sonar-scanner \
-                        -Dsonar.projectKey=frontend \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=$SONAR_HOST_URL \
-                        -Dsonar.login=$SONAR_AUTH_TOKEN \
-                        -Dsonar.projectName="Frontend Analysis"
-                """
+                            cd ${WORKSPACE}/Application-Code/frontend
+                            ${scannerHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=frontend \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=$SONAR_HOST_URL \
+                                -Dsonar.login=$SONAR_AUTH_TOKEN \
+                                -Dsonar.projectName="Frontend Analysis"
+                        """
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Dependency Check') {
             steps {
@@ -58,19 +56,16 @@ pipeline {
                         cd /opt/dependency-check
 
                         if [ ! -f dependency-check/bin/dependency-check.sh ]; then
-                            echo "Downloading OWASP Dependency Check CLI..."
                             wget -q https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
                             unzip -o dependency-check-8.4.0-release.zip
                         fi
 
                         mkdir -p ${WORKSPACE}/reports
 
-                        echo "Scanning backend dependencies..."
                         cd ${WORKSPACE}/Application-Code/backend
                         /opt/dependency-check/dependency-check/bin/dependency-check.sh \
                             --scan . --format HTML --out ${WORKSPACE}/reports/backend-dependency-report.html || true
 
-                        echo "Scanning frontend dependencies..."
                         cd ${WORKSPACE}/Application-Code/frontend
                         /opt/dependency-check/dependency-check/bin/dependency-check.sh \
                             --scan . --format HTML --out ${WORKSPACE}/reports/frontend-dependency-report.html || true
@@ -84,29 +79,29 @@ pipeline {
                 script {
                     echo "🧾 Scanning for sensitive files..."
                     sh '''
-                        echo "Checking for .env files..."
                         find Application-Code -type f -name ".env" || echo "No .env files found."
-
-                        echo "Checking for AWS access keys..."
                         grep -rnE "AKIA[0-9A-Z]{16}" Application-Code || echo "No AWS keys found."
                     '''
                 }
             }
         }
 
-        
         stage('Build Docker Images') {
             steps {
                 script {
-                    GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-                    echo "🐳 Building backend and frontend Docker images for commit: ${GIT_COMMIT}"
-                    sh '''
+                    def GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    env.FRONTEND_TAG = "frontend-${GIT_COMMIT}"
+                    env.BACKEND_TAG  = "backend-${GIT_COMMIT}"
+
+                    echo "🐳 Building Docker images with tags: ${BACKEND_TAG}, ${FRONTEND_TAG}"
+
+                    sh """
                         cd Application-Code/backend
-                        docker build -t ${ECR_URI}:backend-${GIT_COMMIT} .
+                        docker build -t ${ECR_URI}:${BACKEND_TAG} .
 
                         cd ../frontend
-                        docker build -t ${ECR_URI}:frontend-${GIT_COMMIT} .
-                    '''
+                        docker build -t ${ECR_URI}:${FRONTEND_TAG} .
+                    """
                 }
             }
         }
@@ -119,18 +114,18 @@ pipeline {
                         apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
                         if ! command -v trivy > /dev/null; then
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor --batch --yes -o /usr/share/keyrings/trivy.gpg
                             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
                             apt-get update -y && apt-get install -y trivy
                         fi
 
                         mkdir -p ${WORKSPACE}/reports
 
-                        echo "Scanning backend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:backend-${GIT_COMMIT} || true
+                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                            -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:${BACKEND_TAG} || true
 
-                        echo "Scanning frontend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:frontend-${GIT_COMMIT} || true
+                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                            -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:${FRONTEND_TAG} || true
                     '''
                 }
             }
@@ -154,10 +149,10 @@ pipeline {
             steps {
                 script {
                     echo "📤 Pushing Docker images to AWS ECR..."
-                    sh '''
-                        docker push ${ECR_URI}:backend-${GIT_COMMIT}
-                        docker push ${ECR_URI}:frontend-${GIT_COMMIT}
-                    '''
+                    sh """
+                        docker push ${ECR_URI}:${BACKEND_TAG}
+                        docker push ${ECR_URI}:${FRONTEND_TAG}
+                    """
                 }
             }
         }
