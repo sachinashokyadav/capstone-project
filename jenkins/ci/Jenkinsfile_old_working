@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION        = "ap-south-1"
-        AWS_ACCOUNT_ID    = "688372068524"
-        ECR_REPO          = "capstoneproject/docker-images"
-        ECR_URI           = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
-        SONARQUBE_SERVER  = "SonarQubeServer"       // Jenkins configured server
-        SONARQUBE_SCANNER = "SonarQubeScanner"      // Jenkins configured scanner
+        AWS_REGION       = "ap-south-1"
+        AWS_ACCOUNT_ID   = "688372068524"
+        ECR_REPO         = "capstoneproject/docker-images"
+        ECR_URI          = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+        SONARQUBE_SERVER  = "SonarQubeServer"   // Name configured in Jenkins
+        SONARQUBE_SCANNER = "SonarQubeScanner"  // Name configured in Jenkins
     }
 
     stages {
@@ -89,9 +89,10 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    def GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-                    env.FRONTEND_TAG = "frontend-${GIT_COMMIT}"
-                    env.BACKEND_TAG  = "backend-${GIT_COMMIT}"
+                    // Define commit and image tags properly
+                    def GIT_COMMIT    = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    def BACKEND_TAG   = "backend-${GIT_COMMIT}"
+                    def FRONTEND_TAG  = "frontend-${GIT_COMMIT}"
 
                     echo "🐳 Building Docker images with tags: ${BACKEND_TAG}, ${FRONTEND_TAG}"
 
@@ -102,6 +103,10 @@ pipeline {
                         cd ../frontend
                         docker build -t ${ECR_URI}:${FRONTEND_TAG} .
                     """
+
+                    // Export for next stages
+                    env.BACKEND_TAG  = BACKEND_TAG
+                    env.FRONTEND_TAG = FRONTEND_TAG
                 }
             }
         }
@@ -114,16 +119,18 @@ pipeline {
                         apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
                         if ! command -v trivy > /dev/null; then
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor --batch --yes -o /usr/share/keyrings/trivy.gpg
+                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
                             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
                             apt-get update -y && apt-get install -y trivy
                         fi
 
                         mkdir -p ${WORKSPACE}/reports
 
+                        echo "Scanning backend image..."
                         trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
                             -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:${BACKEND_TAG} || true
 
+                        echo "Scanning frontend image..."
                         trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
                             -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:${FRONTEND_TAG} || true
                     '''
@@ -149,10 +156,10 @@ pipeline {
             steps {
                 script {
                     echo "📤 Pushing Docker images to AWS ECR..."
-                    sh """
+                    sh '''
                         docker push ${ECR_URI}:${BACKEND_TAG}
                         docker push ${ECR_URI}:${FRONTEND_TAG}
-                    """
+                    '''
                 }
             }
         }
