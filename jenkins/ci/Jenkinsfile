@@ -96,11 +96,12 @@ pipeline {
         stage('Build Docker Images') {
     steps {
         script {
-            def GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-            def FRONTEND_TAG = "frontend-${GIT_COMMIT}"
-            def BACKEND_TAG  = "backend-${GIT_COMMIT}"
+            // define commit and tags
+            def GIT_COMMIT   = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+            env.BACKEND_TAG  = "backend-${GIT_COMMIT}"
+            env.FRONTEND_TAG = "frontend-${GIT_COMMIT}"
 
-            echo "🐳 Building backend and frontend Docker images for commit: ${GIT_COMMIT}"
+            echo "🐳 Building Docker images with tags: ${BACKEND_TAG}, ${FRONTEND_TAG}"
 
             sh """
                 cd Application-Code/backend
@@ -113,44 +114,33 @@ pipeline {
     }
 }
 
+stage('Image Vulnerability Scan (Trivy)') {
+    steps {
+        script {
+            echo "🛡️ Scanning Docker images with Trivy..."
+            sh """
+                apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
-        stage('Image Vulnerability Scan (Trivy)') {
-            steps {
-                script {
-                    echo "⚡ Running optimized Trivy scan..."
+                if ! command -v trivy > /dev/null; then
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                    echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+                    apt-get update -y && apt-get install -y trivy
+                fi
 
-                    sh '''
-                    apt-get update -y
-                    apt-get install -y wget apt-transport-https gnupg lsb-release
+                mkdir -p ${WORKSPACE}/reports
 
-                    # Disable TTY for GPG to avoid Jenkins CI error
-                    export GPG_TTY=$(tty || echo /dev/null)
+                echo "Scanning backend image..."
+                trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                    -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:${BACKEND_TAG} || true
 
-                    # Install or update Trivy
-                    if ! command -v trivy &> /dev/null; then
-                      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor --batch --yes -o /usr/share/keyrings/trivy.gpg
-                      echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
-                      apt-get update -y
-                      apt-get install -y trivy
-                    fi
-
-                    mkdir -p /var/jenkins_home/workspace/$JOB_NAME/reports
-
-                    echo "🧠 Updating Trivy DB cache..."
-                    trivy image --skip-update=false --cache-dir /tmp/trivy-cache alpine:latest > /dev/null 2>&1
-
-                    echo "🚀 Scanning built images for vulnerabilities..."
-                    echo "🔹 Scanning frontend image: ${ECR_URI}:${FRONTEND_TAG}"
-                    trivy image --scanners vuln --exit-code 0 --severity HIGH,CRITICAL \
-                        --format table ${ECR_URI}:${FRONTEND_TAG} > /var/jenkins_home/workspace/$JOB_NAME/reports/frontend_trivy_report.txt
-
-                    echo "🔹 Scanning backend image: ${ECR_URI}:${BACKEND_TAG}"
-                    trivy image --scanners vuln --exit-code 0 --severity HIGH,CRITICAL \
-                        --format table ${ECR_URI}:${BACKEND_TAG} > /var/jenkins_home/workspace/$JOB_NAME/reports/backend_trivy_report.txt
-                    '''
-                }
-            }
+                echo "Scanning frontend image..."
+                trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                    -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:${FRONTEND_TAG} || true
+            """
         }
+    }
+}
+
 
         stage('Login to AWS ECR') {
             steps {
