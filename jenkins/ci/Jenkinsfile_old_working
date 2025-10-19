@@ -87,56 +87,52 @@ pipeline {
         }
 
         stage('Build Docker Images') {
-            steps {
-                script {
-                    // Define commit and image tags properly
-                    def GIT_COMMIT    = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-                    def BACKEND_TAG   = "backend-${GIT_COMMIT}"
-                    def FRONTEND_TAG  = "frontend-${GIT_COMMIT}"
+    steps {
+        script {
+            // define commit and tags
+            def GIT_COMMIT   = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+            env.BACKEND_TAG  = "backend-${GIT_COMMIT}"
+            env.FRONTEND_TAG = "frontend-${GIT_COMMIT}"
 
-                    echo "🐳 Building Docker images with tags: ${BACKEND_TAG}, ${FRONTEND_TAG}"
+            echo "🐳 Building Docker images with tags: ${BACKEND_TAG}, ${FRONTEND_TAG}"
 
-                    sh """
-                        cd Application-Code/backend
-                        docker build -t ${ECR_URI}:${BACKEND_TAG} .
+            sh """
+                cd Application-Code/backend
+                docker build -t ${ECR_URI}:${BACKEND_TAG} .
 
-                        cd ../frontend
-                        docker build -t ${ECR_URI}:${FRONTEND_TAG} .
-                    """
-
-                    // Export for next stages
-                    env.BACKEND_TAG  = BACKEND_TAG
-                    env.FRONTEND_TAG = FRONTEND_TAG
-                }
-            }
+                cd ../frontend
+                docker build -t ${ECR_URI}:${FRONTEND_TAG} .
+            """
         }
+    }
+}
 
-        stage('Image Vulnerability Scan (Trivy)') {
-            steps {
-                script {
-                    echo "🛡️ Scanning Docker images with Trivy..."
-                    sh '''
-                        apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
+stage('Image Vulnerability Scan (Trivy)') {
+    steps {
+        script {
+            echo "🛡️ Scanning Docker images with Trivy..."
+            sh """
+                apt-get update -y && apt-get install -y wget apt-transport-https gnupg lsb-release
 
-                        if ! command -v trivy > /dev/null; then
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-                            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
-                            apt-get update -y && apt-get install -y trivy
-                        fi
+                if ! command -v trivy > /dev/null; then
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                    echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+                    apt-get update -y && apt-get install -y trivy
+                fi
 
-                        mkdir -p ${WORKSPACE}/reports
+                mkdir -p ${WORKSPACE}/reports
 
-                        echo "Scanning backend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
-                            -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:${BACKEND_TAG} || true
+                echo "Scanning backend image..."
+                trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                    -o ${WORKSPACE}/reports/backend-trivy-report.html ${ECR_URI}:${BACKEND_TAG} || true
 
-                        echo "Scanning frontend image..."
-                        trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
-                            -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:${FRONTEND_TAG} || true
-                    '''
-                }
-            }
+                echo "Scanning frontend image..."
+                trivy image --exit-code 0 --severity HIGH,CRITICAL --format html \
+                    -o ${WORKSPACE}/reports/frontend-trivy-report.html ${ECR_URI}:${FRONTEND_TAG} || true
+            """
         }
+    }
+}
 
         stage('Login to AWS ECR') {
             steps {
