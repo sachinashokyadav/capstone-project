@@ -1,31 +1,28 @@
 # ==============================
 # Stage 1: Build frontend
 # ==============================
-FROM node:14-alpine AS build
+FROM node:16-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Copy dependency files
+# Copy only dependency files and install dependencies
 COPY package*.json ./
+RUN npm ci
 
-# Install dependencies (older lockfile support)
-RUN npm install --legacy-peer-deps --no-audit --no-fund
-
-# Copy frontend source code and build
+# Copy source code and build production files
 COPY . .
-RUN npm run build || echo "Build failed - skipping for now"
+RUN npm run build
 
 # ==============================
 # Stage 2: Serve with Nginx
 # ==============================
-FROM nginx:1.21-alpine
+FROM nginx:alpine
 
-# Clean default html
-RUN rm -rf /usr/share/nginx/html/*
-
-# Copy build output if available
+# Copy production build to nginx html folder
 COPY --from=build /usr/src/app/build /usr/share/nginx/html
 
+# Expose port 80 for the app
 EXPOSE 80
 
+# Run Nginx
 CMD ["nginx", "-g", "daemon off;"]
