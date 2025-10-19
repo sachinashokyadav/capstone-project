@@ -1,29 +1,28 @@
 # ==============================
 # Stage 1: Build dependencies
 # ==============================
-FROM node:16-alpine AS builder
+FROM node:14-alpine AS builder
 
 WORKDIR /usr/src/app
 
-# Use npm 8 to handle old package-lock.json
-RUN npm install -g npm@8
-
-# Copy dependency files and install production dependencies
+# Copy dependency files
 COPY package*.json ./
-RUN npm ci --only=production --legacy-peer-deps --cache /usr/src/app/.npm-cache
+
+# Install dependencies with compatibility flags
+RUN npm install --legacy-peer-deps --no-audit --no-fund
 
 # Copy backend source code
 COPY . .
 
 # ==============================
-# Stage 2: Create final lightweight image
+# Stage 2: Create final image
 # ==============================
-FROM node:16-alpine
+FROM node:14-alpine
 
 WORKDIR /usr/src/app
 
-# Copy built app from builder
-COPY --from=builder /usr/src/app /usr/src/app
+# Copy app from builder
+COPY --from=builder /usr/src/app .
 
 # Expose backend port
 EXPOSE 3000
