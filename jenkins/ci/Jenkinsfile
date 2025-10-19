@@ -97,20 +97,22 @@ pipeline {
             steps {
                 script {
                     GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    FRONTEND_TAG = "frontend-${GIT_COMMIT}"
+                    BACKEND_TAG  = "backend-${GIT_COMMIT}"
                     echo "🐳 Building backend and frontend Docker images for commit: ${GIT_COMMIT}"
 
                     sh '''
                         cd Application-Code/backend
-                        docker build -t ${ECR_URI}:backend-${GIT_COMMIT} .
+                        docker build -t ${ECR_URI}:${BACKEND_TAG} .
 
                         cd ../frontend
-                        docker build -t ${ECR_URI}:frontend-${GIT_COMMIT} .
+                        docker build -t ${ECR_URI}:${FRONTEND_TAG} .
                     '''
                 }
             }
         }
 
-                stage('Image Vulnerability Scan (Trivy)') {
+        stage('Image Vulnerability Scan (Trivy)') {
             steps {
                 script {
                     echo "⚡ Running optimized Trivy scan..."
@@ -119,13 +121,14 @@ pipeline {
                     apt-get update -y
                     apt-get install -y wget apt-transport-https gnupg lsb-release
 
+                    # Disable TTY for GPG to avoid Jenkins CI error
+                    export GPG_TTY=$(tty || echo /dev/null)
+
                     # Install or update Trivy
                     if ! command -v trivy &> /dev/null; then
-                      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor --batch --yes -o /usr/share/keyrings/trivy.gpg
                       echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
                       apt-get update -y
-                      apt-get install -y trivy
-                    else
                       apt-get install -y trivy
                     fi
 
@@ -135,13 +138,6 @@ pipeline {
                     trivy image --skip-update=false --cache-dir /tmp/trivy-cache alpine:latest > /dev/null 2>&1
 
                     echo "🚀 Scanning built images for vulnerabilities..."
-
-                    # Ensure tags exist (exported from Build stage)
-                    if [ -z "${FRONTEND_TAG}" ] || [ -z "${BACKEND_TAG}" ]; then
-                        echo "❌ FRONTEND_TAG or BACKEND_TAG not found!"
-                        exit 1
-                    fi
-
                     echo "🔹 Scanning frontend image: ${ECR_URI}:${FRONTEND_TAG}"
                     trivy image --scanners vuln --exit-code 0 --severity HIGH,CRITICAL \
                         --format table ${ECR_URI}:${FRONTEND_TAG} > /var/jenkins_home/workspace/$JOB_NAME/reports/frontend_trivy_report.txt
@@ -154,7 +150,6 @@ pipeline {
             }
         }
 
-        
         stage('Login to AWS ECR') {
             steps {
                 script {
@@ -174,11 +169,8 @@ pipeline {
                 script {
                     echo "📤 Pushing Docker images to AWS ECR..."
                     sh '''
-                        echo "Pushing backend image..."
-                        docker push ${ECR_URI}:backend-${GIT_COMMIT}
-
-                        echo "Pushing frontend image..."
-                        docker push ${ECR_URI}:frontend-${GIT_COMMIT}
+                        docker push ${ECR_URI}:${BACKEND_TAG}
+                        docker push ${ECR_URI}:${FRONTEND_TAG}
                     '''
                 }
             }
