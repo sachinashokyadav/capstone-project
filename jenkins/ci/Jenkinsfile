@@ -94,23 +94,25 @@ pipeline {
         }
 
         stage('Build Docker Images') {
-            steps {
-                script {
-                    GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-                    FRONTEND_TAG = "frontend-${GIT_COMMIT}"
-                    BACKEND_TAG  = "backend-${GIT_COMMIT}"
-                    echo "🐳 Building backend and frontend Docker images for commit: ${GIT_COMMIT}"
+    steps {
+        script {
+            def GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+            def FRONTEND_TAG = "frontend-${GIT_COMMIT}"
+            def BACKEND_TAG  = "backend-${GIT_COMMIT}"
 
-                    sh '''
-                        cd Application-Code/backend
-                        docker build -t ${ECR_URI}:${BACKEND_TAG} .
+            echo "🐳 Building backend and frontend Docker images for commit: ${GIT_COMMIT}"
 
-                        cd ../frontend
-                        docker build -t ${ECR_URI}:${FRONTEND_TAG} .
-                    '''
-                }
-            }
+            sh """
+                cd Application-Code/backend
+                docker build -t ${ECR_URI}:${BACKEND_TAG} .
+
+                cd ../frontend
+                docker build -t ${ECR_URI}:${FRONTEND_TAG} .
+            """
         }
+    }
+}
+
 
         stage('Image Vulnerability Scan (Trivy)') {
             steps {
