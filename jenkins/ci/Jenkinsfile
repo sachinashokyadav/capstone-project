@@ -110,33 +110,50 @@ pipeline {
             }
         }
 
-        stage('Image Vulnerability Scan (Trivy)') {
-    steps {
-        script {
-            echo "⚡ Running optimized Trivy scan..."
+                stage('Image Vulnerability Scan (Trivy)') {
+            steps {
+                script {
+                    echo "⚡ Running optimized Trivy scan..."
 
-            sh '''
-            apt-get update -y
-            apt-get install -y wget apt-transport-https gnupg lsb-release
+                    sh '''
+                    apt-get update -y
+                    apt-get install -y wget apt-transport-https gnupg lsb-release
 
-            # Install Trivy if not present
-            if ! command -v trivy &> /dev/null; then
-              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-              echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
-              apt-get update -y
-              apt-get install -y trivy
-            fi
+                    # Install or update Trivy
+                    if ! command -v trivy &> /dev/null; then
+                      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+                      echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+                      apt-get update -y
+                      apt-get install -y trivy
+                    else
+                      apt-get install -y trivy
+                    fi
 
-            mkdir -p /var/jenkins_home/workspace/$JOB_NAME/reports
-            echo "🧠 Updating Trivy DB cache..."
-            trivy image --skip-update=false --cache-dir /tmp/trivy-cache alpine:latest > /dev/null 2>&1
+                    mkdir -p /var/jenkins_home/workspace/$JOB_NAME/reports
 
-            echo "🚀 Scanning image for vulnerabilities..."
-            trivy image --exit-code 0 --severity HIGH,CRITICAL --format table $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$FRONTEND_TAG > /var/jenkins_home/workspace/$JOB_NAME/reports/trivy_report.txt
-            '''
+                    echo "🧠 Updating Trivy DB cache..."
+                    trivy image --skip-update=false --cache-dir /tmp/trivy-cache alpine:latest > /dev/null 2>&1
+
+                    echo "🚀 Scanning built images for vulnerabilities..."
+
+                    # Ensure tags exist (exported from Build stage)
+                    if [ -z "${FRONTEND_TAG}" ] || [ -z "${BACKEND_TAG}" ]; then
+                        echo "❌ FRONTEND_TAG or BACKEND_TAG not found!"
+                        exit 1
+                    fi
+
+                    echo "🔹 Scanning frontend image: ${ECR_URI}:${FRONTEND_TAG}"
+                    trivy image --scanners vuln --exit-code 0 --severity HIGH,CRITICAL \
+                        --format table ${ECR_URI}:${FRONTEND_TAG} > /var/jenkins_home/workspace/$JOB_NAME/reports/frontend_trivy_report.txt
+
+                    echo "🔹 Scanning backend image: ${ECR_URI}:${BACKEND_TAG}"
+                    trivy image --scanners vuln --exit-code 0 --severity HIGH,CRITICAL \
+                        --format table ${ECR_URI}:${BACKEND_TAG} > /var/jenkins_home/workspace/$JOB_NAME/reports/backend_trivy_report.txt
+                    '''
+                }
+            }
         }
-    }
-}
+
         
         stage('Login to AWS ECR') {
             steps {
