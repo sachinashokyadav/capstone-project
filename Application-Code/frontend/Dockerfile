@@ -10,7 +10,7 @@ RUN npm install -g npm@8
 
 # Copy dependency files and install dependencies with legacy-peer-deps
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps --cache /usr/src/app/.npm-cache
+RUN npm install --legacy-peer-deps --cache /usr/src/app/.npm-cache
 
 # Copy frontend source code and build
 COPY . .
