@@ -27,22 +27,22 @@ spec:
               value: "http://backend-service:5000"
 
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
   namespace: capstone
   annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: alb   # use "alb" if you want ALB; "nlb" for network LB
-    service.beta.kubernetes.io/aws-load-balancer-internal: "false" # Internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-type: alb        # Use ALB
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: <your-ssl-arn> # optional for HTTPS
-    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"          # optional for HTTPS
+    service.beta.kubernetes.io/aws-load-balancer-internal: "false"
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-048c063565eea401c,subnet-0fa3c62fd641c02e1"  # Public subnets for ALB
 spec:
   selector:
     app: frontend
   ports:
     - protocol: TCP
-      port: 80        # ALB listens on 80 (HTTP)
+      port: 80          # ALB listens on HTTP
       targetPort: 3000
   type: LoadBalancer
