@@ -33,7 +33,7 @@ metadata:
   name: frontend-service
   namespace: capstone
   annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb   # use "alb" if you want ALB; "nlb" for network LB
+    service.beta.kubernetes.io/aws-load-balancer-type: alb   # use "alb" if you want ALB; "nlb" for network LB
     service.beta.kubernetes.io/aws-load-balancer-internal: "false" # Internet-facing
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
     service.beta.kubernetes.io/aws-load-balancer-ssl-cert: <your-ssl-arn> # optional for HTTPS
